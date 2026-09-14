@@ -14,6 +14,7 @@
   add_library(reactornet
     src/EventLoop.cpp
     src/Channel.cpp
+    src/Acceptor.cpp
   )
   target_include_directories(reactornet PUBLIC include)
 
@@ -22,3 +23,7 @@
   add_executable(test_channel test/test_channel.cpp)
   target_link_libraries(test_channel PRIVATE reactornet)
   add_test(NAME channel COMMAND test_channel)
+  add_executable(test_acceptor test/test_acceptor.cpp)
+  target_link_libraries(test_acceptor PRIVATE reactornet)
+  add_test(NAME acceptor COMMAND test_acceptor)
+  
