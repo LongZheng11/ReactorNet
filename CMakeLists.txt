@@ -16,6 +16,7 @@ add_library(reactornet
   src/Channel.cpp
   src/Acceptor.cpp
   src/TcpConnection.cpp
+  src/TcpServer.cpp
 )
 target_include_directories(reactornet PUBLIC include)
 
@@ -30,3 +31,6 @@ add_test(NAME acceptor COMMAND test_acceptor)
 add_executable(test_tcpconn test/test_tcpconn.cpp)
 target_link_libraries(test_tcpconn PRIVATE reactornet)
 add_test(NAME tcpconn COMMAND test_tcpconn)
+add_executable(test_echo test/test_echo.cpp)
+target_link_libraries(test_echo PRIVATE reactornet)
+add_test(NAME echo COMMAND test_echo)
