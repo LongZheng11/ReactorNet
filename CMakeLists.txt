@@ -34,3 +34,7 @@ add_test(NAME tcpconn COMMAND test_tcpconn)
 add_executable(test_echo test/test_echo.cpp)
 target_link_libraries(test_echo PRIVATE reactornet)
 add_test(NAME echo COMMAND test_echo)
+
+# ---- 示例 ----
+add_executable(echo_server example/echo_server.cpp)
+target_link_libraries(echo_server PRIVATE reactornet)
