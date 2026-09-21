@@ -38,6 +38,7 @@ ctest --test-dir build          # 跑全部单测
 - **非阻塞 accept**：用 `accept4(SOCK_NONBLOCK | SOCK_CLOEXEC)`。省一次 `fcntl`，没有「accept 返回到设成非阻塞之间」的竞态窗口，新 fd 也不会泄漏给子进程。
 - **延迟删除**：连接不能在自己的回调栈上析构自己。关闭回调只把删除任务排进 `queueInLoop`，等本次事件派发全部结束、栈安全退出后再执行，避免 use-after-free。
 - **打破 `shared_ptr` 自引用环**：连接的回调按值捕获了 `shared_ptr<自身>`，而这两个回调又存在连接自己的成员里 —— 引用计数永远归不了零，`~TcpConnection` 永不执行，`::close(fd)` 永不发生，于是**每条关闭的连接泄漏一个 fd**。解法是断开时先把回调置空。这个 bug 功能性断言抓不到（泄漏不影响 echo 的正确性），`test_echo` 里用 `countFds()` 数 `/proc/self/fd` 的条目数来断言。
+- **关闭 Nagle 延迟（`TCP_NODELAY`）**：Nagle 会攒住小包、等前一个包被 ACK 再发 —— 省带宽，但牺牲延迟；而对端的 delayed ACK 最多也攒 40ms，两者撞上就是「写—写—读」场景里固定的 40ms 卡顿。交互式服务要的是延迟而不是带宽，所以连接一建立就设 `TCP_NODELAY`，每次 `write` 立即发出。设的是**连接 socket** —— 它是每条连接的属性，而不是监听端口的属性。
 
 ## 本项目不做的事
 
