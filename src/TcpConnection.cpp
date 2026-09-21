@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 
 #include "reactornet/EventLoop.h"
@@ -13,11 +15,17 @@ void setNonBlocking(int fd) {
     int flags = ::fcntl(fd, F_GETFL, 0);
     ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
+
+void setTcpNoDelay(int fd) {
+    int on = 1;
+    ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
+}
 }  // namespace
 
 TcpConnection::TcpConnection(EventLoop* loop, int connfd)
     : loop_(loop), connfd_(connfd), channel_(loop_, connfd_) {
     setNonBlocking(connfd_);
+    setTcpNoDelay(connfd_);
     channel_.setReadCallback([this] { handleRead(); });
     channel_.setWriteCallback([this] { handleWrite(); });
 }
