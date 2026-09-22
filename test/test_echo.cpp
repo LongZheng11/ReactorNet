@@ -1,9 +1,11 @@
 // 全链路 echo：TcpServer(accept→read→onMessage→send) + 真实客户端
-// 外加一条 fd 泄漏断言——它是唯一能抓住「shared_ptr 自引用环」的测试
+// 外加 fd 泄漏断言——它是唯一能抓住「shared_ptr 自引用环」的测试
 #include <arpa/inet.h>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
+#include <fcntl.h>
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -56,6 +58,56 @@ int countFds() {
     return n;
 }
 
+// 运行期回收：客户端断开后，连接应该在 loop 运行期间就被释放，
+// 而不是一直拖着、等 ~TcpServer 的兜底拆环才释放。
+void checkRuntimeReclaim() {
+    int a = -1;
+    int bConnFd = -1;
+    bool sawA = false;
+
+    {
+        EventLoop loop;
+        TcpServer server(&loop, 0);
+        server.setMessageCallback([&](TcpConnection* conn, const std::string& msg) {
+            conn->send(msg);                    // 原样回
+            if (msg == "gone") {
+                bConnFd = conn->fd();           // B 的服务端侧 fd，稍后验它已释放
+                // quit 也排进队：它和 removeConnection 排入的删除任务会在同一批
+                // runPendingFunctors 里执行（quit 只影响下一轮 while 判断）。
+                loop.queueInLoop([&] { loop.quit(); });
+            } else {
+                sawA = true;
+            }
+        });
+        server.start();
+
+        a = dial(server.port());
+        int b = dial(server.port());
+        check(a >= 0 && b >= 0, "两条客户端都连上（A 保持，B 立刻断开）");
+        if (a < 0 || b < 0) return;
+
+        // 两条 connect 都发生在 loop 之前 → 第 1 轮 accept 掉两条，
+        // 第 2 轮同时收到它们的数据，顺序无关。
+        ::write(b, "gone", 4);
+        ::close(b);            // 数据 + FIN 一起；loopback 上服务端一次读到两者
+        ::write(a, "keep", 4);
+
+        loop.loop();
+
+        // ↓↓↓ server 此刻还活着：~TcpServer 的兜底拆环尚未发生。
+        //     所以 B 的 fd 若已经关了，只可能是「运行期回收」干的。
+        check(bConnFd != -1, "B 的消息被处理（拿到服务端侧 fd）");
+        check(bConnFd != -1 && ::fcntl(bConnFd, F_GETFD) == -1,
+              "B 的连接在 loop 运行期就被回收（不是等 ~TcpServer 兜底）");
+
+        std::string back;
+        check(readN(a, &back, 4) && back == "keep",
+              "A 的连接仍活着、echo 闭环正常");
+    }   // ← ~TcpServer 在这里才发生（回收 A）
+
+    if (a >= 0) ::close(a);
+}
+
 }  // namespace
 
 int main() {
@@ -100,6 +152,8 @@ int main() {
           "TcpServer 析构后连接已释放（connfd 已关 → 证明环已拆）");
 
     if (client >= 0) ::close(client);
+
+    checkRuntimeReclaim();
 
     if (g_failures == 0) {
         std::printf("PASS: TcpServer echo 全链路 + 连接无泄漏\n");
